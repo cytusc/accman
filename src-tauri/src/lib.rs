@@ -505,49 +505,76 @@ async fn submit_profile(settings: Settings, profile: Profile) -> Result<SubmitRe
 }
 
 #[tauri::command]
-// 通过后端服务端凭据拉取上游模型列表（无需本地 API Key）
-// POST /api/v1/admin/accounts/:id/models/sync-upstream
+// 从后端获取模型列表（优先读 sub2api 数据库，失败则尝试 sync-upstream）
 async fn sync_upstream_models(
     settings: Settings,
     account_id: i64,
 ) -> Result<Vec<ModelItem>, String> {
     let origin = normalize_origin(&settings.backend_base_url)?;
     let admin_key = settings.admin_api_key.trim();
-    debug_log(&format!("[sync_upstream_models] account_id={account_id}, origin={origin}, admin_key_len={}, admin_key_prefix={}", admin_key.len(), &admin_key[..std::cmp::min(12, admin_key.len())]));
 
     if admin_key.is_empty() {
         return Err("请先在设置里填写管理员 API Key".into());
     }
 
-    let url = format!("{origin}/api/v1/admin/accounts/{account_id}/models/sync-upstream");
-    debug_log(&format!("[sync_upstream_models] POST {url}"));
-
     let client = reqwest::Client::new();
-    // sub2api 管理端点使用 x-api-key 认证
+
+    // 方式一：GET /api/v1/admin/accounts/:id/models（读 sub2api 数据库已配置的模型）
+    let models_url = format!("{origin}/api/v1/admin/accounts/{account_id}/models");
+    debug_log(&format!("[sync_models] GET {models_url}"));
+    if let Ok(resp) = client
+        .get(&models_url)
+        .header("x-api-key", admin_key)
+        .send()
+        .await
+    {
+        let status = resp.status();
+        if let Ok(body) = resp.json::<Value>().await {
+            debug_log(&format!("[sync_models] GET models status={status} body={}", compact_json(&body)));
+            if status.is_success()
+                && body.get("code").and_then(Value::as_i64).unwrap_or(-1) == 0
+            {
+                if let Some(data) = body.get("data").and_then(Value::as_array) {
+                    let models: Vec<ModelItem> = data
+                        .iter()
+                        .filter_map(|item| {
+                            let id = item
+                                .as_str()
+                                .or_else(|| item.get("id").and_then(Value::as_str))?;
+                            Some(ModelItem {
+                                id: id.to_string(),
+                                enabled: true,
+                            })
+                        })
+                        .collect();
+                    if !models.is_empty() {
+                        debug_log(&format!("[sync_models] 从数据库获取到 {} 个模型", models.len()));
+                        return Ok(models);
+                    }
+                }
+            }
+        }
+    }
+
+    // 方式二：POST /sync-upstream（尝试从上游拉取）
+    let sync_url = format!("{origin}/api/v1/admin/accounts/{account_id}/models/sync-upstream");
+    debug_log(&format!("[sync_models] POST {sync_url}"));
     let response = client
-        .post(&url)
+        .post(&sync_url)
         .header("x-api-key", admin_key)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body("{}")
         .send()
         .await
-        .map_err(|err| {
-            debug_log(&format!("[sync_upstream_models] 请求失败: {err}"));
-            format!("请求上游模型同步失败: {err}")
-        })?;
+        .map_err(|err| format!("请求模型同步失败: {err}"))?;
 
     let status = response.status();
-    debug_log(&format!("[sync_upstream_models] 响应 status={status}"));
-
     let body: Value = response
         .json()
         .await
-        .map_err(|err| {
-            debug_log(&format!("[sync_upstream_models] JSON解析失败: {err}"));
-            format!("解析同步响应失败: {err}")
-        })?;
+        .map_err(|err| format!("解析同步响应失败: {err}"))?;
 
-    debug_log(&format!("[sync_upstream_models] body={}", compact_json(&body)));
+    debug_log(&format!("[sync_models] POST sync-upstream status={status} body={}", compact_json(&body)));
     ensure_success(status.as_u16(), &body)?;
 
     let models_raw = body
@@ -556,11 +583,9 @@ async fn sync_upstream_models(
         .and_then(Value::as_array)
         .ok_or_else(|| "响应缺少 data.models 数组".to_string())?;
 
-    // 后端返回格式为 ["model1", "model2"]（字符串数组）
-    let mut models: Vec<ModelItem> = models_raw
+    let models: Vec<ModelItem> = models_raw
         .iter()
         .filter_map(|item| {
-            // 兼容：直接字符串 或 { "id": "..." } 对象
             let id = item
                 .as_str()
                 .or_else(|| item.get("id").and_then(Value::as_str))?;
@@ -572,11 +597,9 @@ async fn sync_upstream_models(
         .collect();
 
     if models.is_empty() {
-        return Err("未获取到任何模型，请检查账号状态".into());
+        return Err("未获取到任何模型".into());
     }
 
-    models.sort_by(|a, b| a.id.cmp(&b.id));
-    models.dedup_by(|a, b| a.id == b.id);
     Ok(models)
 }
 
