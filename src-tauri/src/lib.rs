@@ -316,11 +316,19 @@ async fn fetch_models(profile: Profile) -> Result<Vec<ModelItem>, String> {
 }
 
 #[tauri::command]
-async fn test_model(profile: Profile, model_id: String) -> Result<TestResult, String> {
-    validate_provider_profile(&profile)?;
+async fn test_model(settings: Settings, profile: Profile, model_id: String) -> Result<TestResult, String> {
     if model_id.trim().is_empty() {
         return Err("模型 ID 不能为空".into());
     }
+
+    // 已导入账号（有 remoteId）且无本地 api_key：走后端 sub2api 测试接口
+    if let Some(remote_id) = profile.remote_id {
+        if profile.api_key.trim().is_empty() {
+            return test_model_via_backend(&settings, remote_id, &model_id).await;
+        }
+    }
+
+    validate_provider_profile(&profile)?;
 
     let client = reqwest::Client::new();
     let response = match profile.platform {
@@ -363,6 +371,51 @@ async fn test_model(profile: Profile, model_id: String) -> Result<TestResult, St
     let message = extract_test_message(&profile.platform, &body)
         .unwrap_or_else(|| "测试成功，但响应里没有可展示文本".to_string());
     Ok(TestResult { model_id, message })
+}
+
+/// 通过后端 sub2api 测试接口测试模型（无需本地 api_key）
+async fn test_model_via_backend(settings: &Settings, account_id: i64, model_id: &str) -> Result<TestResult, String> {
+    let origin = normalize_origin(&settings.backend_base_url)?;
+    let admin_key = settings.admin_api_key.trim();
+    if admin_key.is_empty() {
+        return Err("请先在设置里填写管理员 API Key".into());
+    }
+
+    let url = format!("{origin}/api/v1/admin/accounts/{account_id}/test");
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .header("x-api-key", admin_key)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&json!({
+            "model_id": model_id,
+            "prompt": "你好"
+        }))
+        .send()
+        .await
+        .map_err(|err| format!("后端测试请求失败: {err}"))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|err| format!("解析后端测试响应失败: {err}"))?;
+
+    if !status.is_success() {
+        return Err(extract_error_message(status.as_u16(), &body));
+    }
+
+    // sub2api 测试接口返回 SSE 流，但简化处理：检查是否有 error
+    if let Some(msg) = body.get("message").and_then(Value::as_str) {
+        if msg != "success" && !msg.is_empty() {
+            return Err(msg.to_string());
+        }
+    }
+
+    Ok(TestResult {
+        model_id: model_id.to_string(),
+        message: "测试请求已发送，请查看后端日志确认结果".to_string(),
+    })
 }
 
 #[tauri::command]

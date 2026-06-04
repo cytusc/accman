@@ -358,12 +358,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   testModel: async (modelId) => {
+    const { settings } = get();
     const profile = get().getActiveProfile();
     if (!profile) return;
     set((s) => ({ loading: { ...s.loading, testingModel: modelId } }));
     try {
       if (!isTauri) throw new Error('请在 Tauri 桌面环境中测试模型');
-      const result = await invoke<{ message: string }>('test_model', { profile, modelId });
+      const result = await invoke<{ message: string }>('test_model', { settings, profile, modelId });
       get().pushToast('success', `${modelId}: ${result.message}`);
     } catch (e) {
       get().pushToast('error', `${modelId}: ${toErrorMessage(e)}`);
