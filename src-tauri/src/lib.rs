@@ -81,12 +81,15 @@ struct RemoteAccount {
     id: i64,
     name: String,
     platform: String,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", alias = "type")]
     account_type: String,
     status: String,
     priority: i32,
     credentials: serde_json::Value,
+    // 后端返回 snake_case，alias 兼容；序列化给前端仍用 camelCase
+    #[serde(alias = "credentials_status", default)]
     credentials_status: HashMap<String, bool>,
+    #[serde(default)]
     groups: Option<serde_json::Value>,
 }
 
