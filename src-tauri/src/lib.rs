@@ -440,9 +440,10 @@ async fn sync_upstream_models(
 
     let url = format!("{origin}/api/v1/admin/accounts/{account_id}/models/sync-upstream");
     let client = reqwest::Client::new();
+    // sub2api 管理端点支持 authorization: Bearer（web UI 风格）
     let response = client
         .post(&url)
-        .header("x-api-key", settings.admin_api_key.trim())
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", settings.admin_api_key.trim()))
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body("{}")
         .send()
@@ -462,10 +463,14 @@ async fn sync_upstream_models(
         .and_then(Value::as_array)
         .ok_or_else(|| "响应缺少 data.models 数组".to_string())?;
 
+    // 后端返回格式为 ["model1", "model2"]（字符串数组）
     let mut models: Vec<ModelItem> = models_raw
         .iter()
         .filter_map(|item| {
-            let id = item.get("id").and_then(Value::as_str)?;
+            // 兼容：直接字符串 或 { "id": "..." } 对象
+            let id = item
+                .as_str()
+                .or_else(|| item.get("id").and_then(Value::as_str))?;
             Some(ModelItem {
                 id: id.to_string(),
                 enabled: true,
