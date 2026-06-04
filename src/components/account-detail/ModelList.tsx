@@ -25,12 +25,9 @@ export default function ModelList() {
     );
   }
 
-  const enabled = profile.models.filter((m) => m.enabled);
-  const disabled = profile.models.filter((m) => !m.enabled);
-
   return (
     <div className="model-list">
-      {[...enabled, ...disabled].map((m) => (
+      {profile.models.map((m) => (
         <div key={m.id} className={`model-row ${!m.enabled ? 'disabled' : ''}`}>
           <div className="model-check">
             <input
