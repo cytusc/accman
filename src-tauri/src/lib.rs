@@ -427,6 +427,62 @@ async fn submit_profile(settings: Settings, profile: Profile) -> Result<SubmitRe
 }
 
 #[tauri::command]
+// 通过后端服务端凭据拉取上游模型列表（无需本地 API Key）
+// POST /api/v1/admin/accounts/:id/models/sync-upstream
+async fn sync_upstream_models(
+    settings: Settings,
+    account_id: i64,
+) -> Result<Vec<ModelItem>, String> {
+    let origin = normalize_origin(&settings.backend_base_url)?;
+    if settings.admin_api_key.trim().is_empty() {
+        return Err("请先在设置里填写管理员 API Key".into());
+    }
+
+    let url = format!("{origin}/api/v1/admin/accounts/{account_id}/models/sync-upstream");
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .header("x-api-key", settings.admin_api_key.trim())
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body("{}")
+        .send()
+        .await
+        .map_err(|err| format!("请求上游模型同步失败: {err}"))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|err| format!("解析同步响应失败: {err}"))?;
+    ensure_success(status.as_u16(), &body)?;
+
+    let models_raw = body
+        .get("data")
+        .and_then(|d| d.get("models"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| "响应缺少 data.models 数组".to_string())?;
+
+    let mut models: Vec<ModelItem> = models_raw
+        .iter()
+        .filter_map(|item| {
+            let id = item.get("id").and_then(Value::as_str)?;
+            Some(ModelItem {
+                id: id.to_string(),
+                enabled: true,
+            })
+        })
+        .collect();
+
+    if models.is_empty() {
+        return Err("未获取到任何模型，请检查账号状态".into());
+    }
+
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models.dedup_by(|a, b| a.id == b.id);
+    Ok(models)
+}
+
+#[tauri::command]
 async fn list_remote_accounts(
     settings: Settings,
     platform: String,
@@ -1032,7 +1088,8 @@ pub fn run() {
             list_remote_accounts,
             update_profile,
             delete_remote_account,
-            refresh_oauth_account
+            refresh_oauth_account,
+            sync_upstream_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 
 export default function ApiConfig() {
-  const { getActiveProfile, updateActiveProfile, fetchModels, loading } = useAppStore();
+  const { getActiveProfile, updateActiveProfile, fetchModels, syncUpstreamModels, loading } = useAppStore();
   const profile = getActiveProfile();
   const [showKey, setShowKey] = useState(false);
   if (!profile) return null;
 
   const isOAuth = profile.accountType === 'oauth' || profile.accountType === 'setup-token';
   const hasRemoteKey = profile.credentialsStatus?.has_api_key || profile.credentialsStatus?.has_access_token;
+  const hasRemoteId = Boolean(profile.remoteId);
 
   return (
     <div className="card">
@@ -53,8 +54,22 @@ export default function ApiConfig() {
           )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={fetchModels} disabled={loading.models || isOAuth}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          {/* 有远程 ID 时显示"从后端同步"按钮，无论是否为 OAuth 均可用 */}
+          {hasRemoteId && (
+            <button
+              onClick={syncUpstreamModels}
+              disabled={loading.models}
+              title="通过后端存储的凭据直接拉取上游模型，无需本地 API Key"
+            >
+              {loading.models ? '同步中…' : '↓ 从后端同步模型'}
+            </button>
+          )}
+          <button
+            onClick={fetchModels}
+            disabled={loading.models || (isOAuth && !profile.apiKey)}
+            title="使用本地填写的 API Key 直接请求上游获取模型"
+          >
             {loading.models ? '获取中…' : '获取模型列表'}
           </button>
         </div>

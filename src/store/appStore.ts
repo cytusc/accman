@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { Profile, Settings, GroupOption, AppState, Toast, LoadingState, PaginatedAccounts, RemoteAccount } from '../types';
+import type { Profile, Settings, GroupOption, AppState, Toast, LoadingState, PaginatedAccounts, RemoteAccount, ModelItem } from '../types';
 
 // isTauri 检测
 const isTauri = Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
@@ -105,6 +105,7 @@ interface AppStore {
   setPlatformFilter: (f: 'openai' | 'anthropic' | 'all') => void;
   fetchGroups: (showSuccess?: boolean) => Promise<void>;
   fetchModels: () => Promise<void>;
+  syncUpstreamModels: () => Promise<void>;
   testModel: (modelId: string) => Promise<void>;
   submitProfile: () => Promise<void>;
   listRemoteAccounts: (page: number, platform?: string) => Promise<PaginatedAccounts>;
@@ -218,6 +219,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const models = fetched.map((m) => ({ id: m.id, enabled: previous.has(m.id) ? Boolean(previous.get(m.id)) : true }));
       get().updateActiveProfile({ models, lastFetchedAt: new Date().toISOString() });
       get().pushToast('success', `已获取 ${models.length} 个模型`);
+    } catch (e) {
+      get().pushToast('error', toErrorMessage(e));
+    } finally {
+      set((s) => ({ loading: { ...s.loading, models: false } }));
+    }
+  },
+
+  syncUpstreamModels: async () => {
+    const { settings, getActiveProfile } = get();
+    const profile = getActiveProfile();
+    if (!profile?.remoteId) {
+      get().pushToast('error', '仅导入的账号（有远程 ID）可使用此功能');
+      return;
+    }
+    set((s) => ({ loading: { ...s.loading, models: true } }));
+    try {
+      if (!isTauri) throw new Error('请在 Tauri 桌面环境中使用此功能');
+      const fetched = await invoke<ModelItem[]>('sync_upstream_models', {
+        settings,
+        accountId: profile.remoteId,
+      });
+      const previous = new Map(profile.models.map((m) => [m.id, m.enabled]));
+      const models = fetched.map((m) => ({
+        id: m.id,
+        enabled: previous.has(m.id) ? Boolean(previous.get(m.id)) : true,
+      }));
+      get().updateActiveProfile({ models, lastFetchedAt: new Date().toISOString() });
+      get().pushToast('success', `已从后端同步 ${models.length} 个模型`);
     } catch (e) {
       get().pushToast('error', toErrorMessage(e));
     } finally {
