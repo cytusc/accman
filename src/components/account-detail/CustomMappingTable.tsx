@@ -26,7 +26,7 @@ export default function CustomMappingTable() {
     <div className="mapping-table">
       {mappings.length === 0 && (
         <div className="muted" style={{ fontSize: 12 }}>
-          暂无自定义映射。添加后可将模型名映射到不同名称发送给后端。
+          左侧为接口对外暴露的模型名称，右侧为实际请求上游的模型名称。
         </div>
       )}
       {mappings.map((m, i) => (
@@ -34,13 +34,13 @@ export default function CustomMappingTable() {
           <input
             value={m.from}
             onChange={(e) => update(i, { from: e.target.value })}
-            placeholder="原始模型名"
+            placeholder="接口对外模型名"
           />
           <span className="mapping-arrow">→</span>
           <input
             value={m.to}
             onChange={(e) => update(i, { to: e.target.value })}
-            placeholder="映射目标名"
+            placeholder="上游实际模型名"
           />
           <button className="mapping-delete" onClick={() => remove(i)} title="删除">×</button>
         </div>
