@@ -1,13 +1,31 @@
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, LOCATION};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, collections::HashMap, fs, path::PathBuf};
+use std::{collections::BTreeMap, collections::HashMap, fs, path::PathBuf, io::Write};
 use uuid::Uuid;
 
 const APP_DIR: &str = "Sub2Desk";
 const STATE_FILE: &str = "state.json";
+const LOG_FILE: &str = "debug.log";
 const KEYRING_SERVICE: &str = "Sub2Desk";
 const KEYRING_USER: &str = "admin_api_key";
+
+/// 写入调试日志到文件
+fn debug_log(msg: &str) {
+    if let Some(mut path) = dirs::config_dir() {
+        path.push(APP_DIR);
+        path.push(LOG_FILE);
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let timestamp = time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default();
+            let _ = writeln!(f, "[{timestamp}] {msg}");
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -434,27 +452,42 @@ async fn sync_upstream_models(
     account_id: i64,
 ) -> Result<Vec<ModelItem>, String> {
     let origin = normalize_origin(&settings.backend_base_url)?;
-    if settings.admin_api_key.trim().is_empty() {
+    let admin_key = settings.admin_api_key.trim();
+    debug_log(&format!("[sync_upstream_models] account_id={account_id}, origin={origin}, admin_key_len={}, admin_key_prefix={}", admin_key.len(), &admin_key[..std::cmp::min(12, admin_key.len())]));
+
+    if admin_key.is_empty() {
         return Err("请先在设置里填写管理员 API Key".into());
     }
 
     let url = format!("{origin}/api/v1/admin/accounts/{account_id}/models/sync-upstream");
+    debug_log(&format!("[sync_upstream_models] POST {url}"));
+
     let client = reqwest::Client::new();
     // sub2api 管理端点支持 authorization: Bearer（web UI 风格）
     let response = client
         .post(&url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", settings.admin_api_key.trim()))
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {admin_key}"))
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body("{}")
         .send()
         .await
-        .map_err(|err| format!("请求上游模型同步失败: {err}"))?;
+        .map_err(|err| {
+            debug_log(&format!("[sync_upstream_models] 请求失败: {err}"));
+            format!("请求上游模型同步失败: {err}")
+        })?;
 
     let status = response.status();
+    debug_log(&format!("[sync_upstream_models] 响应 status={status}"));
+
     let body: Value = response
         .json()
         .await
-        .map_err(|err| format!("解析同步响应失败: {err}"))?;
+        .map_err(|err| {
+            debug_log(&format!("[sync_upstream_models] JSON解析失败: {err}"));
+            format!("解析同步响应失败: {err}")
+        })?;
+
+    debug_log(&format!("[sync_upstream_models] body={}", compact_json(&body)));
     ensure_success(status.as_u16(), &body)?;
 
     let models_raw = body
