@@ -2,6 +2,7 @@ export type Platform = 'openai' | 'anthropic';
 export type Theme = 'light' | 'dark';
 export type SyncStatus = 'local' | 'synced' | 'dirty';
 export type AccountType = 'apikey' | 'oauth' | 'setup-token';
+export type AccountStatus = 'active' | 'inactive' | 'error';
 
 export interface ModelItem {
   id: string;
@@ -31,6 +32,7 @@ export interface Profile {
   accountType: AccountType;
   customMappings: CustomMapping[];
   credentialsStatus: Record<string, boolean> | null;
+  accountStatus: AccountStatus;
 }
 
 export interface Settings {

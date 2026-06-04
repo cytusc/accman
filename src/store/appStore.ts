@@ -27,6 +27,7 @@ function createProfile(name: string): Profile {
     accountType: 'apikey',
     customMappings: [],
     credentialsStatus: null,
+    accountStatus: 'active' as const,
   };
 }
 
@@ -111,6 +112,7 @@ interface AppStore {
   submitProfile: () => Promise<void>;
   listRemoteAccounts: (page: number, platform?: string) => Promise<PaginatedAccounts>;
   importRemoteAccount: (remote: RemoteAccount) => void;
+  toggleAccountStatus: (profileId: string) => Promise<void>;
   deleteRemoteAccount: (accountId: number) => Promise<void>;
   refreshOAuthAccount: (accountId: number) => Promise<void>;
   saveSettings: (s: Partial<Settings>) => void;
@@ -222,6 +224,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           accountType: (remote.accountType as any) || existing.accountType,
           priority: remote.priority || existing.priority,
           credentialsStatus: remote.credentialsStatus || existing.credentialsStatus,
+          accountStatus: (remote.status as any) || existing.accountStatus,
         });
         updatedCount++;
       } else {
@@ -247,6 +250,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
           accountType: (remote.accountType as any) || 'apikey',
           priority: remote.priority,
           credentialsStatus: remote.credentialsStatus,
+          accountStatus: (remote.status as any) || 'active',
         });
       }
     }
@@ -430,6 +434,32 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ profiles: [...profiles, p], activeProfileId: p.id, importModalOpen: false });
     get().pushToast('success', `已导入账号 "${remote.name}"`);
     get().scheduleSave();
+  },
+
+  toggleAccountStatus: async (profileId) => {
+    const { settings, profiles } = get();
+    const profile = profiles.find((p) => p.id === profileId);
+    if (!profile?.remoteId) {
+      get().pushToast('error', '仅已同步的账号可切换状态');
+      return;
+    }
+    const newStatus = profile.accountStatus === 'active' ? 'inactive' : 'active';
+    set((s) => ({
+      profiles: s.profiles.map((p) => p.id === profileId ? { ...p, accountStatus: newStatus } : p),
+    }));
+    try {
+      if (!isTauri) return;
+      // 用现有 update_profile 命令传递 profile，后端会设置 status
+      await invoke('update_profile', { settings, profile: { ...profile, accountStatus: newStatus } });
+      get().pushToast('success', `账号已${newStatus === 'active' ? '启用' : '禁用'}`);
+      get().scheduleSave();
+    } catch (e) {
+      // 回滚
+      set((s) => ({
+        profiles: s.profiles.map((p) => p.id === profileId ? { ...p, accountStatus: profile.accountStatus } : p),
+      }));
+      get().pushToast('error', toErrorMessage(e));
+    }
   },
 
   deleteRemoteAccount: async (accountId) => {

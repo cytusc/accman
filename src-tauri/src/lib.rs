@@ -85,7 +85,11 @@ struct Profile {
     custom_mappings: Vec<CustomMapping>,
     #[serde(default)]
     credentials_status: Option<HashMap<String, bool>>,
+    #[serde(default = "default_account_status")]
+    account_status: String,
 }
+
+fn default_account_status() -> String { "active".to_string() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -634,6 +638,7 @@ async fn do_update_profile(settings: Settings, profile: Profile) -> Result<Submi
         "group_ids": profile.group_ids,
         "concurrency": 1,
         "priority": profile.priority.max(1),
+        "status": profile.account_status,
         "confirm_mixed_channel_risk": true
     });
 
@@ -834,6 +839,7 @@ fn default_profile(name: String) -> Profile {
         account_type: "apikey".to_string(),
         custom_mappings: Vec::new(),
         credentials_status: None,
+        account_status: "active".to_string(),
     }
 }
 
