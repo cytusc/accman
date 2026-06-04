@@ -15,7 +15,7 @@ export default function AccountDetail() {
   if (!profile.baseUrl.trim()) missingFields.push('Base URL');
   if (!settings.backendBaseUrl.trim()) missingFields.push('后端管理地址');
   if (!settings.adminApiKey.trim()) missingFields.push('管理员 API Key');
-  if (!profile.groupId) missingFields.push('分组');
+  if (!profile.groupIds || profile.groupIds.length === 0) missingFields.push('分组');
   if (!profile.models.some((m) => m.enabled) && profile.customMappings.length === 0) missingFields.push('至少选择一个模型');
   const canSubmit = missingFields.length === 0;
 

@@ -12,12 +12,23 @@ export default function BasicInfo() {
     if (profile.platform === platform) return;
     updateActiveProfile({
       platform,
-      groupId: null,
+      groupIds: [],
       models: [],
       baseUrl: platform === 'openai' ? 'https://api.openai.com' : 'https://api.anthropic.com',
     });
     useAppStore.getState().fetchGroups(false);
   };
+
+  const toggleGroup = (id: number) => {
+    const current = profile.groupIds;
+    const next = current.includes(id) ? current.filter((g) => g !== id) : [...current, id];
+    updateActiveProfile({ groupIds: next });
+  };
+
+  const selectedNames = groups
+    .filter((g) => profile.groupIds.includes(g.id))
+    .map((g) => g.name)
+    .join('、');
 
   return (
     <div className="card">
@@ -47,19 +58,37 @@ export default function BasicInfo() {
         </div>
 
         <div className="form-row">
-          <label>分组</label>
-          <div className="inline-control">
-            <select
-              value={profile.groupId ?? ''}
-              onChange={(e) => updateActiveProfile({ groupId: e.target.value ? Number(e.target.value) : null })}
-            >
-              <option value="">选择分组</option>
-              {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
-            <button onClick={() => fetchGroups(true)} disabled={loading.groups}>
-              {loading.groups ? '…' : '刷新'}
-            </button>
+          <label>
+            分组（多选）
+            {selectedNames && <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--text)' }}>{selectedNames}</span>}
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {groups.map((g) => (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => toggleGroup(g.id)}
+                style={{
+                  fontSize: 12,
+                  minHeight: 28,
+                  padding: '0 10px',
+                  borderColor: profile.groupIds.includes(g.id) ? 'var(--accent)' : undefined,
+                  background: profile.groupIds.includes(g.id) ? 'var(--accent-bg)' : undefined,
+                  color: profile.groupIds.includes(g.id) ? 'var(--accent-strong)' : undefined,
+                }}
+              >
+                {g.name}
+              </button>
+            ))}
+            {groups.length === 0 && <span className="muted" style={{ fontSize: 12 }}>暂无分组</span>}
           </div>
+          <button
+            onClick={() => fetchGroups(true)}
+            disabled={loading.groups}
+            style={{ fontSize: 12, minHeight: 28, width: 'auto', padding: '0 10px', marginTop: 4 }}
+          >
+            {loading.groups ? '…' : '刷新分组'}
+          </button>
         </div>
 
         <div className="form-grid form-grid-2">

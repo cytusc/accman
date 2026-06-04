@@ -69,7 +69,8 @@ struct Profile {
     pool_mode: bool,
     pool_mode_retry_count: u32,
     priority: i32,
-    group_id: Option<u64>,
+    #[serde(default)]
+    group_ids: Vec<i64>,
     base_url: String,
     api_key: String,
     models: Vec<ModelItem>,
@@ -371,7 +372,9 @@ async fn submit_profile(settings: Settings, profile: Profile) -> Result<SubmitRe
         return Err("请先在设置里填写管理员 API Key".into());
     }
     validate_provider_profile(&profile)?;
-    let group_id = profile.group_id.ok_or_else(|| "请选择分组".to_string())?;
+    if profile.group_ids.is_empty() {
+        return Err("请选择至少一个分组".into());
+    }
     let enabled_models: Vec<&ModelItem> = profile.models.iter().filter(|model| model.enabled).collect();
     if enabled_models.is_empty() {
         return Err("至少选择一个模型".into());
@@ -392,7 +395,7 @@ async fn submit_profile(settings: Settings, profile: Profile) -> Result<SubmitRe
             "model_mapping": model_mapping
         },
         "extra": {},
-        "group_ids": [group_id],
+        "group_ids": profile.group_ids,
         "concurrency": 1,
         "priority": profile.priority.max(1),
         "confirm_mixed_channel_risk": true
@@ -593,7 +596,9 @@ async fn do_update_profile(settings: Settings, profile: Profile) -> Result<Submi
         return Err("请先在设置里填写管理员 API Key".into());
     }
 
-    let group_id = profile.group_id.ok_or_else(|| "请选择分组".to_string())?;
+    if profile.group_ids.is_empty() {
+        return Err("请选择至少一个分组".into());
+    }
     let enabled_models: Vec<&ModelItem> = profile.models.iter().filter(|model| model.enabled).collect();
     if enabled_models.is_empty() {
         return Err("至少选择一个模型".into());
@@ -626,7 +631,7 @@ async fn do_update_profile(settings: Settings, profile: Profile) -> Result<Submi
         "type": profile.account_type,
         "credentials": credentials,
         "extra": {},
-        "group_ids": [group_id],
+        "group_ids": profile.group_ids,
         "concurrency": 1,
         "priority": profile.priority.max(1),
         "confirm_mixed_channel_risk": true
@@ -819,7 +824,7 @@ fn default_profile(name: String) -> Profile {
         pool_mode: false,
         pool_mode_retry_count: 3,
         priority: 1,
-        group_id: None,
+        group_ids: Vec::new(),
         base_url: "https://api.openai.com".into(),
         api_key: String::new(),
         models: Vec::new(),

@@ -21,7 +21,7 @@ export interface Profile {
   poolMode: boolean;
   poolModeRetryCount: number;
   priority: number;
-  groupId: number | null;
+  groupIds: number[];
   baseUrl: string;
   apiKey: string;
   models: ModelItem[];
