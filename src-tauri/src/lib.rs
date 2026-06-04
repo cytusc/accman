@@ -463,10 +463,10 @@ async fn sync_upstream_models(
     debug_log(&format!("[sync_upstream_models] POST {url}"));
 
     let client = reqwest::Client::new();
-    // sub2api 管理端点支持 authorization: Bearer（web UI 风格）
+    // sub2api 管理端点使用 x-api-key 认证
     let response = client
         .post(&url)
-        .header(reqwest::header::AUTHORIZATION, format!("Bearer {admin_key}"))
+        .header("x-api-key", admin_key)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body("{}")
         .send()
