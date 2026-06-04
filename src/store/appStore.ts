@@ -314,6 +314,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   fetchModels: async () => {
     const profile = get().getActiveProfile();
     if (!profile) return;
+    // 已导入账号无本地 api_key：自动走后端同步
+    if (profile.remoteId && !profile.apiKey.trim()) {
+      return get().syncUpstreamModels();
+    }
     set((s) => ({ loading: { ...s.loading, models: true } }));
     try {
       if (!isTauri) throw new Error('请在 Tauri 桌面环境中获取模型列表');
