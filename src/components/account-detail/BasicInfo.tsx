@@ -58,10 +58,7 @@ export default function BasicInfo() {
         </div>
 
         <div className="form-row">
-          <label>
-            分组（多选）
-            {selectedNames && <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--text)' }}>{selectedNames}</span>}
-          </label>
+          <label>分组（多选）</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {groups.map((g) => (
               <button
