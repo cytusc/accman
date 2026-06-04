@@ -25,11 +25,6 @@ export default function BasicInfo() {
     updateActiveProfile({ groupIds: next });
   };
 
-  const selectedNames = groups
-    .filter((g) => profile.groupIds.includes(g.id))
-    .map((g) => g.name)
-    .join('、');
-
   return (
     <div className="card">
       <div className="card-header">

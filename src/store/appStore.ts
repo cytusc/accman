@@ -98,6 +98,7 @@ interface AppStore {
   getFilteredProfiles: () => Profile[];
   // Actions
   init: () => Promise<void>;
+  autoSyncRemoteAccounts: () => Promise<void>;
   addProfile: () => void;
   updateActiveProfile: (patch: Partial<Profile>) => void;
   deleteProfile: (id: string) => void;
@@ -158,9 +159,107 @@ export const useAppStore = create<AppStore>((set, get) => ({
       document.documentElement.dataset.theme = state.settings.theme;
       set({ profiles: state.profiles, activeProfileId: state.activeProfileId, settings: state.settings, loading: { ...get().loading, boot: false } });
       await get().fetchGroups(false);
+
+      // 自动同步：后端地址和 admin key 已配置时，启动时拉取所有远程账号
+      if (isTauri && state.settings.backendBaseUrl.trim() && state.settings.adminApiKey.trim()) {
+        get().autoSyncRemoteAccounts();
+      }
     } catch (e) {
       get().pushToast('error', toErrorMessage(e));
       set((s) => ({ loading: { ...s.loading, boot: false } }));
+    }
+  },
+
+  // 启动时自动同步：拉取所有远程账号，合并到本地 profile
+  autoSyncRemoteAccounts: async () => {
+    const { settings, profiles } = get();
+    if (!settings.backendBaseUrl.trim() || !settings.adminApiKey.trim()) return;
+
+    let allRemote: RemoteAccount[] = [];
+    let page = 1;
+
+    try {
+      // 分页拉取所有账号
+      while (true) {
+        const result = await get().listRemoteAccounts(page, '');
+        allRemote = allRemote.concat(result.items);
+        if (allRemote.length >= result.total || result.items.length === 0) break;
+        page++;
+      }
+    } catch {
+      // 网络错误静默处理，不影响启动
+      return;
+    }
+
+    if (allRemote.length === 0) return;
+
+    const newProfiles: Profile[] = [];
+    let updatedCount = 0;
+
+    for (const remote of allRemote) {
+      const existing = profiles.find((p) => p.remoteId === remote.id);
+      if (existing) {
+        // 已有本地 profile，同步元数据（不覆盖本地 api_key）
+        const creds = remote.credentials as Record<string, unknown>;
+        const modelMapping = (creds.model_mapping as Record<string, string>) ?? {};
+        const models = Object.keys(modelMapping).map((id) => ({ id, enabled: true }));
+        const customMappings = Object.entries(modelMapping)
+          .filter(([from, to]) => from !== to)
+          .map(([from, to]) => ({ from, to }));
+        const groupIds = Array.isArray(remote.groups)
+          ? remote.groups.map((g: any) => g.id ?? g)
+          : Array.isArray((creds as any).group_ids) ? (creds as any).group_ids : existing.groupIds;
+
+        // 更新元数据，保留本地 apiKey
+        Object.assign(existing, {
+          accountName: remote.name || existing.accountName,
+          platform: (remote.platform === 'openai' || remote.platform === 'anthropic') ? remote.platform : existing.platform,
+          baseUrl: (creds.base_url as string) || existing.baseUrl,
+          models: models.length > 0 ? models : existing.models,
+          customMappings: customMappings.length > 0 ? customMappings : existing.customMappings,
+          groupIds: groupIds.length > 0 ? groupIds : existing.groupIds,
+          syncStatus: 'synced' as const,
+          accountType: (remote.accountType as any) || existing.accountType,
+          priority: remote.priority || existing.priority,
+          credentialsStatus: remote.credentialsStatus || existing.credentialsStatus,
+        });
+        updatedCount++;
+      } else {
+        // 新远程账号，创建本地 profile
+        const creds = remote.credentials as Record<string, unknown>;
+        const modelMapping = (creds.model_mapping as Record<string, string>) ?? {};
+        const models = Object.keys(modelMapping).map((id) => ({ id, enabled: true }));
+        const customMappings = Object.entries(modelMapping)
+          .filter(([from, to]) => from !== to)
+          .map(([from, to]) => ({ from, to }));
+
+        newProfiles.push({
+          ...createProfile(remote.name || `Account #${remote.id}`),
+          accountName: remote.name,
+          platform: (remote.platform === 'openai' || remote.platform === 'anthropic') ? remote.platform : 'openai',
+          baseUrl: (creds.base_url as string) || '',
+          apiKey: '',
+          models,
+          customMappings,
+          groupIds: Array.isArray(remote.groups) ? remote.groups.map((g: any) => g.id ?? g) : [],
+          remoteId: remote.id,
+          syncStatus: 'synced' as const,
+          accountType: (remote.accountType as any) || 'apikey',
+          priority: remote.priority,
+          credentialsStatus: remote.credentialsStatus,
+        });
+      }
+    }
+
+    if (newProfiles.length > 0 || updatedCount > 0) {
+      set((s) => ({
+        profiles: [...s.profiles, ...newProfiles],
+      }));
+      const parts: string[] = [];
+      if (newProfiles.length > 0) parts.push(`新增 ${newProfiles.length} 个`);
+      if (updatedCount > 0) parts.push(`更新 ${updatedCount} 个`);
+      get().pushToast('success', `远程同步完成：${parts.join('，')}`);
+      get().scheduleSave();
     }
   },
 
